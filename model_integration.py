@@ -15,10 +15,12 @@ class ModelInterface:
         """Format tweets into a context string"""
         context = []
         for tweet in tweets:
+            # Support both 'id' and 'tweet_id' fields
+            tweet_id = tweet.get('id') or tweet.get('tweet_id', 'unknown')
             context.append(
-                f"Tweet ID: {tweet['tweet_id']}\n"
-                f"From User ID: {tweet['author_id']}\n"
-                f"Content: {tweet['text']}\n"
+                f"Tweet ID: {tweet_id}\n"
+                f"From User ID: {tweet.get('author_id', 'unknown')}\n"
+                f"Content: {tweet.get('text', '')}\n"
                 f"Time: {tweet.get('created_at', 'unknown')}\n"
                 f"---"
             )

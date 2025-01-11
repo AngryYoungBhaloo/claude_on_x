@@ -69,7 +69,8 @@ class TwitterClientV2:
             data = response.json()
             return [
                 {
-                    'tweet_id': tweet['id'],
+                    'id': tweet['id'],  # Keep original field name
+                    'tweet_id': tweet['id'],  # Add duplicate for compatibility
                     'author_id': tweet['author_id'],
                     'text': tweet['text'],
                     'created_at': tweet.get('created_at')
@@ -87,10 +88,11 @@ class TwitterClientV2:
         print(f"Debug - Post tweet status: {response.status_code}")
         print(f"Debug - Response body: {response.text}")
         
-        if response.status_code == 201:  # Twitter uses 201 for successful creation
+        if response.status_code == 201:
             data = response.json()
             return {
-                'tweet_id': data['data']['id'],
+                'id': data['data']['id'],  # Keep original field name
+                'tweet_id': data['data']['id'],  # Add duplicate for compatibility
                 'text': data['data']['text'],
                 'created_at': datetime.now(timezone.utc).isoformat()
             }
@@ -113,7 +115,8 @@ class TwitterClientV2:
         if response.status_code == 201:
             data = response.json()
             return {
-                'tweet_id': data['data']['id'],
+                'id': data['data']['id'],  # Keep original field name
+                'tweet_id': data['data']['id'],  # Add duplicate for compatibility
                 'text': data['data']['text'],
                 'in_reply_to_status_id': parent_id,
                 'created_at': datetime.now(timezone.utc).isoformat()
