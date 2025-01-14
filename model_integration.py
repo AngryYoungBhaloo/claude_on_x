@@ -1,8 +1,8 @@
 # model_integration.py
 import os
-from anthropic import Anthropic
-from typing import Dict, List
 import json
+from typing import Dict, List
+from anthropic import Anthropic
 
 class ModelInterface:
     def __init__(self):
@@ -10,62 +10,83 @@ class ModelInterface:
         if not api_key:
             raise ValueError("Missing Anthropic API key in .env file")
         self.client = Anthropic(api_key=api_key)
-        
-    def format_tweet_context(self, tweets: List[Dict]) -> str:
-        """Format tweets into a context string"""
-        context = []
-        for tweet in tweets:
-            # Support both 'id' and 'tweet_id' fields
-            tweet_id = tweet.get('id') or tweet.get('tweet_id', 'unknown')
-            context.append(
-                f"Tweet ID: {tweet_id}\n"
-                f"From User ID: {tweet.get('author_id', 'unknown')}\n"
-                f"Content: {tweet.get('text', '')}\n"
-                f"Time: {tweet.get('created_at', 'unknown')}\n"
-                f"---"
+
+    def decide_on_tweet_thread(self, thread: List[Dict]) -> Dict:
+        """
+        Show the entire thread to Claude, let it pick how to engage:
+        - "like", "retweet", "quote", "reply", "post", or "do_nothing"
+        Return JSON:
+        {
+          "action": "...",
+          "tweet_id": "the tweet to engage with (if relevant)",
+          "text": "text for post or reply or quote"
+        }
+
+        We'll assume the *first* tweet in 'thread' is the top-level tweet
+        that triggered our viewing. 
+        The rest are ancestors (above it) or descendants (replies).
+        """
+        if not thread:
+            return {"action": "do_nothing"}
+
+        # The top-level tweet is the first in the list if your get_full_thread 
+        # is structured that way. (In our code, we do "ancestors + descendants",
+        # which puts the top-level in the middle. So let's find it.)
+        top_level_tweet = thread[len(thread)//2] if len(thread) > 0 else None
+
+        # Format the thread for Claude
+        formatted = []
+        for idx, t in enumerate(thread):
+            tid = t.get('tweet_id', 'unknown')
+            author = t.get('author_id', 'unknown')
+            text = t.get('text', '')
+            is_top = ("<-- This is the main tweet we're focusing on" if t == top_level_tweet else "")
+            msg = (
+                f"Tweet #{idx+1}\n"
+                f"Tweet ID: {tid}\n"
+                f"Author: {author}\n"
+                f"Text: {text}\n"
+                f"{is_top}\n---\n"
             )
-        return "\n".join(context)
-        
-    def get_response(self, notifications: List[Dict], relevant_context: List[Dict]) -> Dict:
-        """Get model's response to notifications with context"""
-        
-        # Format the context
-        notifications_text = self.format_tweet_context(notifications)
-        context_text = self.format_tweet_context(relevant_context) if relevant_context else "No relevant past context."
-        
-        prompt = f"""You're having casual conversations on Twitter. Just be yourself - no need to be preachy or overly formal. Think of this as hanging out and chatting about interesting ideas.
+            formatted.append(msg)
+        thread_str = "\n".join(formatted)
 
-Here are some recent tweets you've received:
+        prompt = f"""
+You are chatting on Twitter, being friendly. Here is a full thread, 
+including ancestors above the main tweet and replies below it:
 
-{notifications_text}
+{thread_str}
 
-Some context from earlier:
-{context_text}
+The *main tweet* we are focusing on is marked with "<-- This is the main tweet we're focusing on".
 
-How would you like to respond? Just give me the JSON in this format:
+Please decide how to respond. Options:
+- "like" a tweet
+- "retweet" a tweet
+- "quote" a tweet (create a new tweet referencing the old tweet's link)
+- "reply" to a tweet
+- "post" a brand-new tweet unrelated to the thread
+- "do_nothing"
+
+Output strictly JSON in this format:
 {{
-    "action": "reply" or "post" or "like" or "retweet",
-    "tweet_id": "ID of tweet to reply to/like/retweet (if needed)",
-    "text": "Your response (if posting/replying)"
+  "action": "...",
+  "tweet_id": "the tweet you're liking/retweeting/replying/quoting if relevant",
+  "text": "text if replying or quoting or posting"
 }}
 
-Just the JSON please, no other text."""
+No extra commentary beyond that JSON.
+"""
 
-        # Get model response
         response = self.client.messages.create(
-            model="claude-3-sonnet-20240229",
-            max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }]
+            model="claude-3-5-sonnet-20241022",  # updated model name
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
         )
-        
+
         try:
-            result = json.loads(response.content[0].text)
-            print(f"Parsed response: {result}")  # Debug output
-            return result
-        except json.JSONDecodeError as e:
-            print(f"Error parsing model response: {response.content[0].text}")
-            print(f"JSON error: {str(e)}")
-            return {"error": "Failed to parse model response"}
+            content = response.content[0].text.strip()
+            data = json.loads(content)
+            return data
+        except Exception as e:
+            print(f"[ModelInterface] Error parsing model response: {e}")
+            return {"action": "do_nothing"}
